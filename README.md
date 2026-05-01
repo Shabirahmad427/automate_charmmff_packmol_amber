@@ -1,50 +1,169 @@
 
 # automate_charmm_packmol_amber
 
-Automates a `pdb2pqr -> Packmol -> psfgen -> ParmEd -> AMBER` preparation workflow for protein MD systems. The repository also keeps a concrete AtBgl1A example at `pH 5.5`, including CHARMM-based system building, AMBER inputs.
+This workflow uses your `pdb2pqr` protonation assignment at `pH 5.5` as the source of truth, then maps it into CHARMM/psfgen naming.
 
-## What This Repository Contains
+Pipeline:
 
-- `prepare_charmm_packmol_amber.py`
-  Main helper script. It maps protonation states from a `.pqr`, writes Packmol and `psfgen` inputs, generates AMBER MD input files, and can optionally run the whole build.
-  
-## Workflow Summary
+1. `pdb2pqr` protonation at `pH 5.5`
+2. map residue names into `psfgen`-compatible PDB naming
+3. generate protonation patch commands for `ASPP` and `GLUP`
+4. build `PSF/PDB` with `psfgen`
+5. solvate with `Packmol`
+6. build final solvated `PSF/PDB` with `psfgen`
+7. convert CHARMM `PSF/PDB` to AMBER `parm7/rst7` with ParmEd `chamber`
 
-The Python script uses the protonation pattern from `pdb2pqr` as the source of truth and prepares a CHARMM-to-AMBER pipeline:
+## Important naming translation
 
-1. Read the original `.pdb` and the protonated `.pqr`.
-2. Map `pdb2pqr` residue names into `psfgen`/CHARMM-compatible names.
-3. Generate protonation patch commands for protonated acids.
-4. Write a protein-only PDB and Packmol input files.
-5. Write `psfgen` scripts for unsolvated and solvated systems.
-6. Write AMBER minimization, heating, equilibration, and production inputs.
-7. Optionally run `Packmol`, `psfgen`, and `ParmEd` to produce AMBER-ready topology and coordinates.
+`pdb2pqr` names are not the same as CHARMM names:
 
-## Protonation Mapping
+- `HID` -> `HSD`
+- `HIE` -> `HSE`
+- `HIP` -> `HSP`
+- `ASH` -> `ASP` plus `ASPP` patch
+- `GLH` -> `GLU` plus `GLUP` patch
 
-The script converts common `pdb2pqr` names into CHARMM naming conventions:
+For this reason, protonated acids must **not** remain as `ASH/GLH` in the psfgen PDB. They must be converted to `ASP/GLU` and then patched inside `psfgen`.
 
-- `HID -> HSD`
-- `HIE -> HSE`
-- `HIP -> HSP`
-- `ASH -> ASP` plus `ASPP` patch
-- `GLH -> GLU` plus `GLUP` patch
+## Files
 
-This matters because protonated acids should not remain as `ASH` or `GLH` in the `psfgen` input PDB. They are converted to standard residue names and then protonated through patches.
+- `receptor_psfgen_ph55.pdb`
+  Full mapped PDB with `pdb2pqr` protonation mapped into CHARMM residue names.
+- `receptor_psfgen_ph55_protein.pdb`
+  Protein-only version used by `psfgen` for the protein segment.
+- `step1_pdbreader.pdb`
+  Working protein file for your Packmol-style input.
+- `WATER.pdb`, `SOD.pdb`, `CLA.pdb`
+  Minimal template molecules for Packmol using CHARMM-compatible names.
+- `patches_from_pqr.tcl`
+  Generated patch commands for protonated acidic residues.
+- `build_protein_psf.tcl`
+  Builds the unsolvated protein PSF/PDB.
+- `build_solvated_psf.tcl`
+  Example solvated-system psfgen build script for protein + waters + ions.
+- `packmol_water_ions_template.inp`
+  Template for Packmol solvation.
+- `to_amber_from_charmm.parmed.in`
+  ParmEd script that converts the CHARMM-built system to `parm7/rst7`.
+- `split_solvated_packmol.awk`
+  Splits `solvated.pdb` into `protein_from_packmol.pdb`, `waters_packmol.pdb`, and `ions_packmol.pdb`.
 
-## Requirements
+## Local topology/parameter files used
 
-The current defaults in `prepare_charmm_packmol_amber.py` assume:
+- `top_all36_prot.rtf`
+  `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_prot.rtf`
+- `par_all36_prot.prm`
+  `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_prot.prm`
+- `toppar_water_ions.str`
+  `/usr/local/lib/vmd/plugins/noarch/tcl/trunctraj1.5/toppar/stream/toppar_water_ions.str`
 
-- `packmol` is available in `PATH`
-- `psfgen` is available at `/home/shabir/Downloads/NAMD3.1/psfgen`
-- `parmed` is available at `/home/shabir/Downloads/ambertools25/bin/parmed`
-- CHARMM36 topology and parameter files are available from the local VMD plugin installation:
-  - `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_prot.rtf`
-  - `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_prot.prm`
-  - `/usr/local/lib/vmd/plugins/noarch/tcl/trunctraj1.5/toppar/stream/toppar_water_ions.str`
+These files define the actual force field used in the workflow:
 
-If your tools live elsewhere, pass `--packmol`, `--psfgen`, and `--parmed` explicitly.
+- `CHARMM36` protein topology/parameters
+- CHARMM water/ion definitions from `toppar_water_ions.str`
+
+The PSF format written by the scripts is requested explicitly as:
+
+- `X-PLOR`
+- with `CMAP`
+
+using:
+
+```tcl
+writepsf x-plor cmap receptor_protein.psf
+```
+
+and similarly for the solvated system.
+
+Because this `psfgen` build still writes `PSF CMAP` on the first line while indicating `x-plor psf file` in the remarks, the workflow applies a final header normalization step so the first line is strictly:
+
+```text
+PSF CMAP XPLOR
+```
+
+## Generated protonation state examples
+
+From your `pdb2pqr` file at `pH 5.5`:
+
+- catalytic `E166` is protonated in `pdb2pqr`, so this becomes:
+  - `GLU 166` in the PDB
+  - `patch GLUP A:166` in psfgen
+- catalytic `E355` remains standard `GLU`
+- histidines are mapped to `HSD/HSE/HSP`
+
+- 
+## Typical usage
+
+### 1. Build protein-only PSF/PDB
+
+```bash
+cd /media/shabir/Coaraci/GH1/psfgen_receptor
+/home/shabir/Downloads/NAMD3.1/psfgen build_protein_psf.tcl
+```
+
+### 2. Solvate with Packmol
+
+For receptor in this workspace, a concrete starting file is provided:
+
+- `packmol_receptor_110A_cube.inp`
+
+It uses:
+
+- a `110 A` cubic box
+- protein centering by Packmol
+- `2` sodium ions for neutralization only
+- about `44,500` waters
+
+This corresponds to:
+
+- protein net charge `-2` at `pH 5.5`
+- no added bulk salt
+- neutralization only
+
+Run Packmol from this directory:
+
+```bash
+packmol < packmol_receptor_110A_cube.inp
+```
+
+Then split the resulting `solvated.pdb`:
+
+```bash
+awk -f split_solvated_packmol.awk solvated.pdb
+```
+
+### 3. Build solvated PSF/PDB
+
+```bash
+/home/shabir/Downloads/NAMD3.1/psfgen build_solvated_psf.tcl
+```
+
+### 4. Convert to AMBER `parm7/rst7`
+
+```bash
+/home/shabir/Downloads/ambertools25/bin/parmed -n -O -i to_amber_from_charmm.parmed.in
+```
+
+The ParmEd conversion script uses:
+
+- `-box bounding`
+
+This is appropriate when the solvated PDB from your `Packmol + psfgen` workflow does not already carry reliable periodic box metadata and you want ParmEd to infer a rectangular bounding box from the coordinates.
+
+## Important force-field note
+
+After conversion, `parm7/rst7` are AMBER-format files, but the force field remains **CHARMM-derived**. This is a format conversion, not a change to AMBER protein parameters.
+
+## Practical note on waters and ions
+
+If you use Packmol, the water and ion residue names and atom names must match the CHARMM topology exactly. For the supplied example:
+
+- water residue: `TIP3`
+- water atoms: `OH2`, `H1`, `H2`
+- sodium residue/atom: `SOD`
+- chloride residue/atom: `CLA`
+
+If your Packmol output uses different names, rename them before `psfgen`.
 
 ## Usage
 
@@ -112,18 +231,10 @@ Each output directory can contain:
 If the full run is executed, the workflow also produces:
 
 - `solvated.pdb`
-- `protein.psf`, `atbgl1a_protein.pdb`
-- `solvated.psf`, `atbgl1a_solvated.pdb`
+- `protein.psf`, `receptor_protein.pdb`
+- `solvated.psf`, `receptor_solvated.pdb`
 - `receptor_charmm.parm7`, `receptor_charmm.rst7`
 
-## Example
-
-The current example setup is based on:
-
-- input structure: `receptor.pdb`
-- protonation source: `receptor_ph5.5.pqr`
-- target study pH: `5.5`
-- temperature set: `300 K`, `338 K`, `343 K`, `353 K`
 ## Notes
 
 - The final `parm7/rst7` files are AMBER-format outputs derived from a CHARMM36-based build. The force field does not become native AMBER protein parameters just because the file format changes.
