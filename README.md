@@ -96,7 +96,7 @@ From your `pdb2pqr` file at `pH 5.5`:
 ### 1. Build protein-only PSF/PDB
 
 ```bash
-cd /media/shabir/Coaraci/GH1/psfgen_receptor
+cd /media/shabir/Coaraci/GH/psfgen_receptor
 /home/shabir/Downloads/NAMD3.1/psfgen build_protein_psf.tcl
 ```
 
