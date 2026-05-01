@@ -91,7 +91,6 @@ From your `pdb2pqr` file at `pH 5.5`:
 - catalytic `E355` remains standard `GLU`
 - histidines are mapped to `HSD/HSE/HSP`
 
-- 
 ## Typical usage
 
 ### 1. Build protein-only PSF/PDB
