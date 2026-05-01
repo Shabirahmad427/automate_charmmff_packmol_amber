@@ -116,7 +116,7 @@ If the full run is executed, the workflow also produces:
 - `solvated.psf`, `atbgl1a_solvated.pdb`
 - `receptor_charmm.parm7`, `receptor_charmm.rst7`
 
-## AtBgl1A Example
+## Example
 
 The current example setup is based on:
 
