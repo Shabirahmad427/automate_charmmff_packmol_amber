@@ -1,7 +1,7 @@
 
-# automate_charmm_packmol_amber
+# automate_CHARMMff_packmol_amber
 
-This workflow uses your `pdb2pqr` protonation assignment at `pH 5.5` as the source of truth, then maps it into CHARMM/psfgen naming.
+This workflow uses your `pdb2pqr` protonation assignment at `pH 5.5` as the source of truth, then maps it into CHARMMff/psfgen naming.
 
 Pipeline:
 
@@ -11,11 +11,11 @@ Pipeline:
 4. build `PSF/PDB` with `psfgen`
 5. solvate with `Packmol`
 6. build final solvated `PSF/PDB` with `psfgen`
-7. convert CHARMM `PSF/PDB` to AMBER `parm7/rst7` with ParmEd `chamber`
+7. convert CHARMMff `PSF/PDB` to AMBER package `parm7/rst7` with ParmEd `chamber`
 
 ## Important naming translation
 
-`pdb2pqr` names are not the same as CHARMM names:
+`pdb2pqr` names are not the same as CHARMMff names:
 
 - `HID` -> `HSD`
 - `HIE` -> `HSE`
@@ -28,13 +28,13 @@ For this reason, protonated acids must **not** remain as `ASH/GLH` in the psfgen
 ## Files
 
 - `receptor_psfgen_ph5.5.pdb`
-  Full mapped PDB with `pdb2pqr` protonation mapped into CHARMM residue names.
+  Full mapped PDB with `pdb2pqr` protonation mapped into CHARMMff residue names.
 - `receptor_psfgen_ph5.5_protein.pdb`
   Protein-only version used by `psfgen` for the protein segment.
 - `step1_pdbreader.pdb`
   Working protein file for your Packmol-style input.
 - `WATER.pdb`, `SOD.pdb`, `CLA.pdb`
-  Minimal template molecules for Packmol using CHARMM-compatible names.
+  Minimal template molecules for Packmol using CHARMMff-compatible names.
 - `patches_from_pqr.tcl`
   Generated patch commands for protonated acidic residues.
 - `build_protein_psf.tcl`
@@ -43,24 +43,24 @@ For this reason, protonated acids must **not** remain as `ASH/GLH` in the psfgen
   Example solvated-system psfgen build script for protein + waters + ions.
 - `packmol_water_ions_template.inp`
   Template for Packmol solvation.
-- `to_amber_from_charmm.parmed.in`
-  ParmEd script that converts the CHARMM-built system to `parm7/rst7`.
+- `to_amber_from_CHARMMff.parmed.in`
+  ParmEd script that converts the CHARMMff-built system to `parm7/rst7`.
 - `split_solvated_packmol.awk`
   Splits `solvated.pdb` into `protein_from_packmol.pdb`, `waters_packmol.pdb`, and `ions_packmol.pdb`.
 
 ## Local topology/parameter files used
 
 - `top_all36_prot.rtf`
-  `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_prot.rtf`
+  `/usr/local/lib/vmd/plugins/noarch/tcl/readCHARMMfftop1.2/top_all36_prot.rtf`
 - `par_all36_prot.prm`
-  `/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_prot.prm`
+  `/usr/local/lib/vmd/plugins/noarch/tcl/readCHARMMffpar1.5/par_all36_prot.prm`
 - `toppar_water_ions.str`
   `/usr/local/lib/vmd/plugins/noarch/tcl/trunctraj1.5/toppar/stream/toppar_water_ions.str`
 
 These files define the actual force field used in the workflow:
 
-- `CHARMM36` protein topology/parameters
-- CHARMM water/ion definitions from `toppar_water_ions.str`
+- `CHARMMff36` protein topology/parameters
+- CHARMMff water/ion definitions from `toppar_water_ions.str`
 
 The PSF format written by the scripts is requested explicitly as:
 
@@ -138,10 +138,10 @@ awk -f split_solvated_packmol.awk solvated.pdb
 /home/shabir/Downloads/NAMD3.1/psfgen build_solvated_psf.tcl
 ```
 
-### 4. Convert to AMBER `parm7/rst7`
+### 4. Convert to AMBER package `parm7/rst7`
 
 ```bash
-/home/shabir/Downloads/ambertools25/bin/parmed -n -O -i to_amber_from_charmm.parmed.in
+/home/shabir/Downloads/ambertools25/bin/parmed -n -O -i to_amber_from_CHARMMff.parmed.in
 ```
 
 The ParmEd conversion script uses:
@@ -152,11 +152,11 @@ This is appropriate when the solvated PDB from your `Packmol + psfgen` workflow 
 
 ## Important force-field note
 
-After conversion, `parm7/rst7` are AMBER-format files, but the force field remains **CHARMM-derived**. This is a format conversion, not a change to AMBER protein parameters.
+After conversion, `parm7/rst7` are AMBER-format files, but the force field remains **CHARMMff-derived**. This is a format conversion, not a change to AMBER package protein parameters.
 
 ## Practical note on waters and ions
 
-If you use Packmol, the water and ion residue names and atom names must match the CHARMM topology exactly. For the supplied example:
+If you use Packmol, the water and ion residue names and atom names must match the CHARMMff topology exactly. For the supplied example:
 
 - water residue: `TIP3`
 - water atoms: `OH2`, `H1`, `H2`
@@ -172,7 +172,7 @@ If your Packmol output uses different names, rename them before `psfgen`.
 This writes the workflow files without running external tools.
 
 ```bash
-python3 prepare_charmm_packmol_amber.py \
+python3 prepare_CHARMMff_packmol_amber.py \
   --pdb receptor.pdb \
   --pqr receptor_ph5.5.pqr \
   --outdir generic_receptor_autobox \
@@ -184,7 +184,7 @@ python3 prepare_charmm_packmol_amber.py \
 ### 2. Prepare and run the full build
 
 ```bash
-python3 prepare_charmm_packmol_amber.py \
+python3 prepare_CHARMMff_packmol_amber.py \
   --pdb receptor.pdb \
   --pqr receptor_ph5.5.pqr \
   --outdir my_system \
@@ -221,7 +221,7 @@ Each output directory can contain:
   Packmol system definition.
 - `build_protein_psf.tcl`, `build_solvated_psf.tcl`
   `psfgen` build scripts.
-- `to_amber_from_charmm.parmed.in`
+- `to_amber_from_CHARMMff.parmed.in`
   ParmEd conversion script.
 - `min1.in`, `min2.in`, `heat_*K.in`, `eq_npt.in`, `eq_relax.in`, `prod.in`
   AMBER MD templates.
@@ -233,10 +233,10 @@ If the full run is executed, the workflow also produces:
 - `solvated.pdb`
 - `protein.psf`, `receptor_protein.pdb`
 - `solvated.psf`, `receptor_solvated.pdb`
-- `receptor_charmm.parm7`, `receptor_charmm.rst7`
+- `receptor_CHARMMff.parm7`, `receptor_CHARMMff.rst7`
 
 ## Notes
 
-- The final `parm7/rst7` files are AMBER-format outputs derived from a CHARMM36-based build. The force field does not become native AMBER protein parameters just because the file format changes.
+- The final `parm7/rst7` files are AMBER-format outputs derived from a CHARMMff36-based build. The force field does not become native AMBER protein parameters just because the file format changes.
 - The generated `eq_npt.in`, `eq_relax.in`, and `prod.in` currently use `temp0=343.0` by default. If you run other temperatures, adjust those files or generate separate stage files as needed.
 - The current build scripts assume the protein segment is chain `A`. If your system uses multiple protein chains, update the generated `psfgen` scripts accordingly.
