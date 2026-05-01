@@ -5,7 +5,6 @@
 #python3 prepare_charmm_packmol_amber.py --pdb input.pdb --pqr input_ph55.pqr --outdir my_system--neutralize-only --padding 15
 
 from __future__ import annotations
-
 import argparse
 import math
 import shutil
@@ -14,71 +13,41 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
-
 CHARMM_TOP = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_prot.rtf"
 CHARMM_PAR = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_prot.prm"
 CHARMM_WATER_IONS = "/usr/local/lib/vmd/plugins/noarch/tcl/trunctraj1.5/toppar/stream/toppar_water_ions.str"
-
 DEFAULT_PACKMOL = shutil.which("packmol") or "packmol"
 DEFAULT_PSFGEN = "/home/shabir/Downloads/NAMD3.1/psfgen"
 DEFAULT_PARMED = "/home/shabir/Downloads/ambertools25/bin/parmed"
-
-
 @dataclass(frozen=True)
 class ResidueKey:
     chain: str
     resid: int
     icode: str
-
-
 def read_lines(path: Path) -> List[str]:
     return path.read_text().splitlines()
-
-
 def write_text(path: Path, text: str) -> None:
     path.write_text(text)
-
-
 def is_atom_record(line: str) -> bool:
     return line.startswith("ATOM") or line.startswith("HETATM")
-
-
 def pdb_resname(line: str) -> str:
     return line[17:20].strip()
-
-
 def pdb_chain(line: str) -> str:
     return line[21:22]
-
-
 def pdb_resid(line: str) -> int:
     return int(line[22:26])
-
-
 def pdb_icode(line: str) -> str:
     return line[26:27]
-
-
 def pdb_atom_name(line: str) -> str:
     return line[12:16]
-
-
 def pdb_coords(line: str) -> Tuple[float, float, float]:
     return float(line[30:38]), float(line[38:46]), float(line[46:54])
-
-
 def replace_resname(line: str, resname: str) -> str:
     return f"{line[:17]}{resname:>3}{line[20:]}"
-
-
 def replace_atom_name(line: str, atom_name: str) -> str:
     return f"{line[:12]}{atom_name:>4}{line[16:]}"
-
-
 def residue_key(line: str) -> ResidueKey:
     return ResidueKey(pdb_chain(line), pdb_resid(line), pdb_icode(line))
-
-
 def map_pqr_resname_to_psfgen(name: str) -> str:
     return {
         "HID": "HSD",
@@ -88,7 +57,6 @@ def map_pqr_resname_to_psfgen(name: str) -> str:
         "GLH": "GLU",
     }.get(name, name)
 
-
 def load_protonation_map(pqr_path: Path) -> Dict[ResidueKey, str]:
     protonation: Dict[ResidueKey, str] = {}
     for line in read_lines(pqr_path):
@@ -97,7 +65,6 @@ def load_protonation_map(pqr_path: Path) -> Dict[ResidueKey, str]:
         key = residue_key(line)
         protonation.setdefault(key, map_pqr_resname_to_psfgen(pdb_resname(line)))
     return protonation
-
 
 def map_pdb_from_pqr(pdb_path: Path, pqr_path: Path) -> List[str]:
     protonation = load_protonation_map(pqr_path)
@@ -109,7 +76,6 @@ def map_pdb_from_pqr(pdb_path: Path, pqr_path: Path) -> List[str]:
                 line = replace_resname(line, protonation[key])
         out.append(line)
     return out
-
 
 def generate_patch_lines(pqr_path: Path) -> List[str]:
     patches: List[str] = []
@@ -127,7 +93,6 @@ def generate_patch_lines(pqr_path: Path) -> List[str]:
         elif resname == "ASH":
             patches.append(f"patch ASPP {key.chain}:{key.resid}")
     return patches
-
 
 def protein_only_lines(mapped_lines: Sequence[str]) -> List[str]:
     atoms = [line for line in mapped_lines if line.startswith("ATOM")]
@@ -149,14 +114,12 @@ def protein_only_lines(mapped_lines: Sequence[str]) -> List[str]:
         fixed.append(line)
     return fixed
 
-
 def bounding_box(lines: Sequence[str]) -> Tuple[float, float, float, float, float, float]:
     coords = [pdb_coords(line) for line in lines if line.startswith("ATOM")]
     xs = [x for x, _, _ in coords]
     ys = [y for _, y, _ in coords]
     zs = [z for _, _, z in coords]
     return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
 
 def centered_rmax(lines: Sequence[str]) -> Tuple[float, Tuple[float, float, float]]:
     xmin, xmax, ymin, ymax, zmin, zmax = bounding_box(lines)
@@ -176,7 +139,6 @@ def centered_rmax(lines: Sequence[str]) -> Tuple[float, Tuple[float, float, floa
             max_r = r
     return max_r, (cx, cy, cz)
 
-
 def net_charge_from_pqr(pqr_path: Path) -> float:
     total = 0.0
     for line in read_lines(pqr_path):
@@ -185,11 +147,9 @@ def net_charge_from_pqr(pqr_path: Path) -> float:
         total += float(line[54:62])
     return total
 
-
 def water_count_for_cube(box_side: float) -> int:
     volume = box_side ** 3
     return int(round(0.0334 * volume))
-
 
 def ion_counts(net_charge: float, box_side: float, molarity: float | None) -> Tuple[int, int]:
     na = 0
@@ -205,7 +165,6 @@ def ion_counts(net_charge: float, box_side: float, molarity: float | None) -> Tu
     elif rounded > 0:
         cl += rounded
     return na, cl
-
 
 def packmol_input(box_side: float, waters: int, na: int, cl: int) -> str:
     half = box_side / 2.0
@@ -241,7 +200,6 @@ def packmol_input(box_side: float, waters: int, na: int, cl: int) -> str:
         ])
     return "\n".join(lines) + "\n"
 
-
 def write_template_pdbs(outdir: Path) -> None:
     write_text(outdir / "WATER.pdb", "\n".join([
         "HETATM    1  OH2 TIP A   1       0.000   0.000   0.000  1.00  0.00           O",
@@ -260,7 +218,6 @@ def write_template_pdbs(outdir: Path) -> None:
         "END",
         "",
     ]))
-
 
 def write_splitters(outdir: Path) -> None:
     write_text(outdir / "split_solvated_packmol.awk", "\n".join([
@@ -281,7 +238,6 @@ def write_splitters(outdir: Path) -> None:
     ]))
     write_text(outdir / "fix_psf_header.awk", 'NR == 1 { print "PSF CMAP XPLOR"; next } { print }\n')
 
-
 def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> None:
     subprocess.run(
         cmd,
@@ -291,7 +247,6 @@ def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> N
         check=True,
         shell=isinstance(cmd, str),
     )
-
 
 def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files: Sequence[str] | None = None) -> None:
     write_text(outdir / "patches_from_pqr.tcl", "\n".join(patches) + ("\n" if patches else ""))
@@ -380,7 +335,6 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
     ])
     write_text(outdir / "to_amber_from_charmm.parmed.in", parmed_script)
 
-
 def write_amber_inputs(outdir: Path, temperatures: Iterable[int]) -> None:
     write_text(outdir / "min1.in", "\n".join([
         "Initial minimization with heavy restraints",
@@ -441,7 +395,6 @@ def write_amber_inputs(outdir: Path, temperatures: Iterable[int]) -> None:
         "",
     ]))
 
-
 def split_waters_by_chain(outdir: Path) -> List[str]:
     waters = outdir / "waters_packmol.pdb"
     chain_files: Dict[str, List[str]] = {}
@@ -500,7 +453,6 @@ def prepare_only(args: argparse.Namespace) -> None:
     write_text(outdir / "prep_summary.txt", prep_summary)
     write_text(outdir / "packmol_system.inp", packmol_input(box_side, waters, na, cl))
 
-
 def full_run(args: argparse.Namespace) -> None:
     outdir = args.outdir.resolve()
     prepare_only(args)
@@ -513,10 +465,8 @@ def full_run(args: argparse.Namespace) -> None:
     run([args.psfgen, "build_solvated_psf.tcl"], cwd=outdir)
     run([args.parmed, "-n", "-O", "-i", "to_amber_from_charmm.parmed.in"], cwd=outdir)
 
-
 def parse_temperatures(text: str) -> List[int]:
     return [int(part.strip()) for part in text.split(",") if part.strip()]
-
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -536,7 +486,6 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--parmed", default=DEFAULT_PARMED, help="ParmEd executable.")
     parser.add_argument("--prepare-only", action="store_true", help="Write workflow files only; do not run Packmol/psfgen/ParmEd.")
     return parser
-
 
 def main() -> None:
     parser = make_parser()
