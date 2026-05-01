@@ -88,7 +88,7 @@ From your `pdb2pqr` file at `pH 5.5`:
 - catalytic `E166` is protonated in `pdb2pqr`, so this becomes:
   - `GLU 166` in the PDB
   - `patch GLUP A:166` in psfgen
-- catalytic `E35.5` remains standard `GLU`
+- catalytic `E355` remains standard `GLU`
 - histidines are mapped to `HSD/HSE/HSP`
 
 - 
