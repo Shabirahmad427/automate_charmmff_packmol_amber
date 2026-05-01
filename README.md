@@ -27,9 +27,9 @@ For this reason, protonated acids must **not** remain as `ASH/GLH` in the psfgen
 
 ## Files
 
-- `receptor_psfgen_ph55.pdb`
+- `receptor_psfgen_ph5.5.pdb`
   Full mapped PDB with `pdb2pqr` protonation mapped into CHARMM residue names.
-- `receptor_psfgen_ph55_protein.pdb`
+- `receptor_psfgen_ph5.5_protein.pdb`
   Protein-only version used by `psfgen` for the protein segment.
 - `step1_pdbreader.pdb`
   Working protein file for your Packmol-style input.
@@ -88,7 +88,7 @@ From your `pdb2pqr` file at `pH 5.5`:
 - catalytic `E166` is protonated in `pdb2pqr`, so this becomes:
   - `GLU 166` in the PDB
   - `patch GLUP A:166` in psfgen
-- catalytic `E355` remains standard `GLU`
+- catalytic `E35.5` remains standard `GLU`
 - histidines are mapped to `HSD/HSE/HSP`
 
 - 
@@ -213,7 +213,7 @@ Each output directory can contain:
 
 - `mapped_from_pqr.pdb`
   Input PDB with protonation states translated from the `.pqr`.
-- `receptor_psfgen_ph55_protein.pdb`
+- `receptor_psfgen_ph5.5_protein.pdb`
   Protein-only PDB for `psfgen`.
 - `patches_from_pqr.tcl`
   `ASPP` and `GLUP` protonation patches.
