@@ -122,7 +122,7 @@ Then split the resulting `solvated.pdb`:
 ```bash
 awk -f split_solvated_packmol.awk solvated.pdb
 ```
-then split the resulting waters_packmol.pb
+then split the resulting `waters_packmol.pb`:
 awk -f split_packmol_waters_by_chain.awk waters_packmol.pdb
 
 ### 2. Build protein-only PSF/PDB
