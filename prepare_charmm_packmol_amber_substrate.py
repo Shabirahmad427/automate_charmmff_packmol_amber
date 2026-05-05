@@ -383,7 +383,7 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "source patches_from_pqr.tcl",
         "guesscoord",
 
-        "writepsf x-plx cmap atbgl1a_protein.psf",
+        "writepsf xplor cmap atbgl1a_protein.psf",
         "writepdb atbgl1a_protein.pdb",
 
         "exec awk -f fix_psf_header.awk atbgl1a_protein.psf > atbgl1a_protein.psf.tmp",
@@ -458,7 +458,7 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "source patches_from_pqr.tcl",
         "guesscoord",
 
-        "writepsf x-plx cmap atbgl1a_solvated.psf",
+        "writepsf xplor cmap atbgl1a_solvated.psf",
         "writepdb atbgl1a_solvated.pdb",
 
         "exec awk -f fix_psf_header.awk atbgl1a_solvated.psf > atbgl1a_solvated.psf.tmp",
