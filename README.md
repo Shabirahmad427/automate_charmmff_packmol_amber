@@ -93,14 +93,7 @@ From your `pdb2pqr` file at `pH 5.5`:
 
 ## Typical usage
 
-### 1. Build protein-only PSF/PDB
-
-```bash
-cd /media/shabir/Coaraci/GH/psfgen_receptor
-/home/shabir/Downloads/NAMD3.1/psfgen build_protein_psf.tcl
-```
-
-### 2. Solvate with Packmol
+### 1. Solvate with Packmol
 
 For receptor in this workspace, a concrete starting file is provided:
 
@@ -124,11 +117,19 @@ Run Packmol from this directory:
 ```bash
 packmol < packmol_receptor_110A_cube.inp
 ```
-
 Then split the resulting `solvated.pdb`:
 
 ```bash
 awk -f split_solvated_packmol.awk solvated.pdb
+```
+then split the resulting waters_packmol.pb
+awk -f split_packmol_waters_by_chain.awk waters_packmol.pdb
+
+### 2. Build protein-only PSF/PDB
+
+```bash
+cd /media/shabir/Coaraci/GH/psfgen_receptor
+/home/shabir/Downloads/NAMD3.1/psfgen build_protein_psf.tcl
 ```
 
 ### 3. Build solvated PSF/PDB
