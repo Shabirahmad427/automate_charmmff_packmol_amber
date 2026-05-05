@@ -345,7 +345,7 @@ def write_splitters(outdir: Path) -> None:
     ]))
 
     write_text(outdir / "fix_psf_header.awk",
-        'NR == 1 { print "PSF CMAP XPLOR"; next } { print }\n'
+        'NR == 1 { print "PSF CMAP x-plor"; next } { print }\n'
     )
 
 
@@ -383,7 +383,7 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "source patches_from_pqr.tcl",
         "guesscoord",
 
-        "writepsf xplor cmap atbgl1a_protein.psf",
+        "writepsf x-plor cmap atbgl1a_protein.psf",
         "writepdb atbgl1a_protein.pdb",
 
         "exec awk -f fix_psf_header.awk atbgl1a_protein.psf > atbgl1a_protein.psf.tmp",
@@ -458,7 +458,7 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "source patches_from_pqr.tcl",
         "guesscoord",
 
-        "writepsf xplor cmap atbgl1a_solvated.psf",
+        "writepsf x-plor cmap atbgl1a_solvated.psf",
         "writepdb atbgl1a_solvated.pdb",
 
         "exec awk -f fix_psf_header.awk atbgl1a_solvated.psf > atbgl1a_solvated.psf.tmp",
