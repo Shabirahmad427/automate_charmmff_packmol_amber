@@ -18,6 +18,10 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 CHARMM_TOP = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_prot.rtf"
 CHARMM_PAR = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_prot.prm"
 CHARMM_WATER_IONS = "/usr/local/lib/vmd/plugins/noarch/tcl/trunctraj1.5/toppar/stream/toppar_water_ions.str"
+CHARMM_CGENFF = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_cgenff.rtf"
+CHARMM_CGENFF_PAR = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_cgenff.prm"
+CHARMM_CARB = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmtop1.2/top_all36_carb.rtf"
+CHARMM_CARB_PAR = "/usr/local/lib/vmd/plugins/noarch/tcl/readcharmmpar1.5/par_all36_carb.prm"
 
 DEFAULT_PACKMOL = shutil.which("packmol") or "packmol"
 DEFAULT_PSFGEN = "/home/shabir/Downloads/NAMD3.1/psfgen"
@@ -298,40 +302,51 @@ def write_splitters(outdir: Path) -> None:
     write_text(outdir / "split_solvated_packmol.awk", "\n".join([
         'BEGIN {',
         '  water_out = "waters_packmol.pdb";',
-        '  ion_out   = "ions_packmol.pdb";',
-        '  prot_out  = "protein_from_packmol.pdb";',
-        '  sub_out   = "substrate_from_packmol.pdb";',
+        '  ion_out = "ions_packmol.pdb";',
+        '  prot_out = "protein_from_packmol.pdb";',
+        '  sub_out = "substrate_from_packmol.pdb";',
+        '',
+        '  wres = 0;',
+        '  prev = "";',
         '}',
+        '',
         '/^(ATOM|HETATM)/ {',
-        '  res = substr($0, 18, 4); gsub(/ /, "", res)',
+        '  res = substr($0,18,4);',
+        '  gsub(/ /,"",res);',
         '',
-        '  # water',
-        '  if (res == "TIP" || res == "TIP3" || res == "WAT" || res == "HOH") {',
-        '    print >> water_out',
+        '  # ---------------- WATER ----------------',
+        '  if (res == "TIP" || res == "TIP3") {',
+        '    if (res != prev) wres++;',
+        '    prev = res;',
+        '    printf "%s%5d%s\\n", substr($0,1,22), wres, substr($0,27) >> water_out;',
+        '    next;',
         '  }',
         '',
-        '  # ions',
-        '  else if (res == "SOD" || res == "CLA" || res == "NA" || res == "CL") {',
-        '    print >> ion_out',
+        '  # ---------------- IONS ----------------',
+        '  else if (res == "SOD" || res == "CLA") {',
+        '    print >> ion_out;',
+        '    next;',
         '  }',
         '',
-        '  # substrate / ligand (GLC and any HETATM not classified above)',
-        '  else if ($1 == "HETATM") {',
-        '    print >> sub_out',
+        '  # ---------------- SUBSTRATE ----------------',
+        '  else if (res == "GLC" || res == "STR") {',
+        '    print >> sub_out;',
+        '    next;',
         '  }',
         '',
-        '  # protein',
+        '  # ---------------- PROTEIN ----------------',
         '  else {',
-        '    print >> prot_out',
+        '    print >> prot_out;',
         '  }',
         '}',
+        '',
         'END {',
         '  print "END" >> water_out;',
         '  print "END" >> ion_out;',
         '  print "END" >> prot_out;',
         '  print "END" >> sub_out;',
         '}',
-        "",
+        ""
     ]))
 
     write_text(outdir / "split_packmol_waters_by_chain.awk", "\n".join([
@@ -360,8 +375,20 @@ def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> N
     )
 
 
-def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files: Sequence[str] | None = None) -> None:
-    write_text(outdir / "patches_from_pqr.tcl", "\n".join(patches) + ("\n" if patches else ""))
+def write_build_scripts(
+    outdir: Path,
+    patches: Sequence[str],
+    water_chain_files=None,
+    ligand_str: str | None = None,
+    substrate_pdb: str = "substrate_from_packmol.pdb",
+    use_carb: bool = False,
+) -> None:
+    water_chain_files = water_chain_files or []
+
+    write_text(
+        outdir / "patches_from_pqr.tcl",
+        "\n".join(patches) + ("\n" if patches else "")
+    )
 
     # -------------------------
     # PROTEIN PSF
@@ -395,14 +422,27 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
     # -------------------------
     # SOLVATED + SUBSTRATE SYSTEM
     # -------------------------
-    solvated = [
+    solvated_top = [
         "package require psfgen",
         f"topology {CHARMM_TOP}",
         f"topology {CHARMM_WATER_IONS}",
+    ]
+    if ligand_str:
+        solvated_top += [
+            f"topology {CHARMM_CGENFF}",
+            f"topology {ligand_str}",
+        ]
+    if use_carb:
+        solvated_top += [
+            f"topology {CHARMM_CARB}",
+        ]
+    solvated_top += [
         "pdbalias atom ILE CD1 CD",
         "pdbalias atom PHE OXT OT2",
         "pdbalias residue TIP TIP3",
+    ]
 
+    solvated = solvated_top + [
         "# --------------------",
         "# PROTEIN",
         "# --------------------",
@@ -418,13 +458,13 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "# --------------------",
         "segment SUB {",
         "  auto none",
-        "  pdb substrate_from_packmol.pdb",
+        f"  pdb {substrate_pdb}",
         "}",
-        "coordpdb substrate_from_packmol.pdb SUB",
+        f"coordpdb {substrate_pdb} SUB",
     ]
 
     # -------------------------
-    # WATER HANDLING (unchanged logic)
+    # WATER HANDLING
     # -------------------------
     if water_chain_files:
         for idx, filename in enumerate(water_chain_files):
@@ -468,10 +508,21 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
 
     write_text(outdir / "build_solvated_psf.tcl", "\n".join(solvated))
 
-    parmed_script = "\n".join([
+    parmed_lines = [
         "chamber \\",
         f"  -top {CHARMM_TOP} \\",
         f"  -param {CHARMM_PAR} \\",
+    ]
+    if ligand_str:
+        parmed_lines += [
+            f"  -param {CHARMM_CGENFF_PAR} \\",
+            f"  -str {ligand_str} \\",
+        ]
+    if use_carb:
+        parmed_lines += [
+            f"  -param {CHARMM_CARB_PAR} \\",
+        ]
+    parmed_lines += [
         f"  -str {CHARMM_WATER_IONS} \\",
         "  -psf atbgl1a_solvated.psf \\",
         "  -crd atbgl1a_solvated.pdb \\",
@@ -480,8 +531,8 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "parmout atbgl1a_charmm.parm7 atbgl1a_charmm.rst7",
         "go",
         "",
-    ])
-    write_text(outdir / "to_amber_from_charmm.parmed.in", parmed_script)
+    ]
+    write_text(outdir / "to_amber_from_charmm.parmed.in", "\n".join(parmed_lines))
 
 
 def write_amber_inputs(outdir: Path, temperatures: Iterable[int]) -> None:
@@ -574,7 +625,13 @@ def prepare_only(args: argparse.Namespace) -> None:
     patches = generate_patch_lines(args.pqr)
     write_splitters(outdir)
     write_template_pdbs(outdir)
-    write_build_scripts(outdir, patches)
+    ligand_str = str(args.ligand_str.resolve()) if args.ligand_str else None
+    write_build_scripts(
+        outdir, patches,
+        ligand_str=ligand_str,
+        substrate_pdb=args.substrate_pdb,
+        use_carb=args.carb,
+    )
     write_amber_inputs(outdir, args.temperatures)
 
     net = net_charge_from_pqr(args.pqr)
@@ -615,7 +672,15 @@ def full_run(args: argparse.Namespace) -> None:
     run(f"{args.packmol} < packmol_system.inp", cwd=outdir)
     run(["awk", "-f", "split_solvated_packmol.awk", "solvated.pdb"], cwd=outdir)
     water_chain_files = split_waters_by_chain(outdir)
-    write_build_scripts(outdir, generate_patch_lines(args.pqr), water_chain_files)
+    patches = generate_patch_lines(args.pqr)
+    ligand_str = str(args.ligand_str.resolve()) if args.ligand_str else None
+    write_build_scripts(
+        outdir, patches,
+        water_chain_files=water_chain_files,
+        ligand_str=ligand_str,
+        substrate_pdb=args.substrate_pdb,
+        use_carb=args.carb,
+    )
     run([args.psfgen, "build_protein_psf.tcl"], cwd=outdir)
     run([args.psfgen, "build_solvated_psf.tcl"], cwd=outdir)
     run([args.parmed, "-n", "-O", "-i", "to_amber_from_charmm.parmed.in"], cwd=outdir)
@@ -642,6 +707,24 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--psfgen", default=DEFAULT_PSFGEN, help="psfgen executable.")
     parser.add_argument("--parmed", default=DEFAULT_PARMED, help="ParmEd executable.")
     parser.add_argument("--prepare-only", action="store_true", help="Write workflow files only; do not run Packmol/psfgen/ParmEd.")
+    parser.add_argument(
+        "--ligand-str", type=Path, default=None,
+        help="CGenFF .str file for the non-standard ligand/substrate. "
+             "Loads top_all36_cgenff.rtf + this .str in psfgen and "
+             "par_all36_cgenff.prm + this .str in ParmEd.",
+    )
+    parser.add_argument(
+        "--substrate-pdb", default="substrate_from_packmol.pdb",
+        help="Substrate PDB filename used in the psfgen build script "
+             "(default: substrate_from_packmol.pdb). Use "
+             "substrate_from_packmol_h.pdb when explicit hydrogens are needed.",
+    )
+    parser.add_argument(
+        "--carb", action="store_true",
+        help="Load CHARMM36 carbohydrate force field (top_all36_carb.rtf / "
+             "par_all36_carb.prm) in psfgen and ParmEd. Use for standard "
+             "sugars (AGLC, BGLC, BGAL, etc.) from the CHARMM carb topology.",
+    )
     return parser
 
 
