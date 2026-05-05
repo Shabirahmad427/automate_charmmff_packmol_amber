@@ -296,22 +296,57 @@ def write_template_pdbs(outdir: Path) -> None:
 
 def write_splitters(outdir: Path) -> None:
     write_text(outdir / "split_solvated_packmol.awk", "\n".join([
-        'BEGIN { water_out = "waters_packmol.pdb"; ion_out = "ions_packmol.pdb"; prot_out = "protein_from_packmol.pdb" }',
+        'BEGIN {',
+        '  water_out = "waters_packmol.pdb";',
+        '  ion_out   = "ions_packmol.pdb";',
+        '  prot_out  = "protein_from_packmol.pdb";',
+        '  sub_out   = "substrate_from_packmol.pdb";',
+        '}',
         '/^(ATOM|HETATM)/ {',
         '  res = substr($0, 18, 4); gsub(/ /, "", res)',
-        '  if (res == "TIP" || res == "TIP3") print >> water_out',
-        '  else if (res == "SOD" || res == "CLA") print >> ion_out',
-        '  else print >> prot_out',
+        '',
+        '  # water',
+        '  if (res == "TIP" || res == "TIP3" || res == "WAT" || res == "HOH") {',
+        '    print >> water_out',
+        '  }',
+        '',
+        '  # ions',
+        '  else if (res == "SOD" || res == "CLA" || res == "NA" || res == "CL") {',
+        '    print >> ion_out',
+        '  }',
+        '',
+        '  # substrate / ligand (GLC and any HETATM not classified above)',
+        '  else if ($1 == "HETATM") {',
+        '    print >> sub_out',
+        '  }',
+        '',
+        '  # protein',
+        '  else {',
+        '    print >> prot_out',
+        '  }',
         '}',
-        'END { print "END" >> water_out; print "END" >> ion_out; print "END" >> prot_out }',
+        'END {',
+        '  print "END" >> water_out;',
+        '  print "END" >> ion_out;',
+        '  print "END" >> prot_out;',
+        '  print "END" >> sub_out;',
+        '}',
         "",
     ]))
+
     write_text(outdir / "split_packmol_waters_by_chain.awk", "\n".join([
-        '/^(ATOM|HETATM)/ { f="waters_packmol_" substr($0,22,1) ".pdb"; print >> f; seen[f]=1 }',
+        '/^(ATOM|HETATM)/ {',
+        '  f="waters_packmol_" substr($0,22,1) ".pdb";',
+        '  print >> f;',
+        '  seen[f]=1',
+        '}',
         'END { for (f in seen) print "END" >> f }',
         "",
     ]))
-    write_text(outdir / "fix_psf_header.awk", 'NR == 1 { print "PSF CMAP XPLOR"; next } { print }\n')
+
+    write_text(outdir / "fix_psf_header.awk",
+        'NR == 1 { print "PSF CMAP XPLOR"; next } { print }\n'
+    )
 
 
 def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> None:
@@ -327,28 +362,39 @@ def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> N
 
 def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files: Sequence[str] | None = None) -> None:
     write_text(outdir / "patches_from_pqr.tcl", "\n".join(patches) + ("\n" if patches else ""))
+
+    # -------------------------
+    # PROTEIN PSF
+    # -------------------------
     protein_script = [
         "package require psfgen",
         f"topology {CHARMM_TOP}",
         f"topology {CHARMM_WATER_IONS}",
         "pdbalias atom ILE CD1 CD",
         "pdbalias atom PHE OXT OT2",
+
         "segment A {",
         "  first NTER",
         "  last CTER",
-        "  pdb 9upt_psfgen_ph5.5_protein.pdb",
+        "  pdb protein_from_packmol.pdb",
         "}",
-        "coordpdb 9upt_psfgen_ph5.5_protein.pdb A",
+        "coordpdb protein_from_packmol.pdb A",
+
         "source patches_from_pqr.tcl",
         "guesscoord",
-        "writepsf x-plor cmap atbgl1a_protein.psf",
+
+        "writepsf x-plx cmap atbgl1a_protein.psf",
         "writepdb atbgl1a_protein.pdb",
+
         "exec awk -f fix_psf_header.awk atbgl1a_protein.psf > atbgl1a_protein.psf.tmp",
         "exec mv atbgl1a_protein.psf.tmp atbgl1a_protein.psf",
         "",
     ]
     write_text(outdir / "build_protein_psf.tcl", "\n".join(protein_script))
 
+    # -------------------------
+    # SOLVATED + SUBSTRATE SYSTEM
+    # -------------------------
     solvated = [
         "package require psfgen",
         f"topology {CHARMM_TOP}",
@@ -356,14 +402,30 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
         "pdbalias atom ILE CD1 CD",
         "pdbalias atom PHE OXT OT2",
         "pdbalias residue TIP TIP3",
+
+        "# --------------------",
+        "# PROTEIN",
+        "# --------------------",
         "segment A {",
         "  first NTER",
         "  last CTER",
-        "  pdb 9upt_psfgen_ph5.5_protein.pdb",
+        "  pdb protein_from_packmol.pdb",
         "}",
-        "coordpdb 9upt_psfgen_ph5.5_protein.pdb A",
-        "source patches_from_pqr.tcl",
+        "coordpdb protein_from_packmol.pdb A",
+
+        "# --------------------",
+        "# SUBSTRATE (GLC / ligands)",
+        "# --------------------",
+        "segment SUB {",
+        "  auto none",
+        "  pdb substrate_from_packmol.pdb",
+        "}",
+        "coordpdb substrate_from_packmol.pdb SUB",
     ]
+
+    # -------------------------
+    # WATER HANDLING (unchanged logic)
+    # -------------------------
     if water_chain_files:
         for idx, filename in enumerate(water_chain_files):
             seg = f"WT{idx:02d}"
@@ -382,19 +444,28 @@ def write_build_scripts(outdir: Path, patches: Sequence[str], water_chain_files:
             "}",
             "coordpdb waters_packmol.pdb WT1",
         ])
+
+    # -------------------------
+    # IONS + FINALIZE
+    # -------------------------
     solvated.extend([
         "segment ION {",
         "  auto none",
         "  pdb ions_packmol.pdb",
         "}",
         "coordpdb ions_packmol.pdb ION",
+
+        "source patches_from_pqr.tcl",
         "guesscoord",
-        "writepsf x-plor cmap atbgl1a_solvated.psf",
+
+        "writepsf x-plx cmap atbgl1a_solvated.psf",
         "writepdb atbgl1a_solvated.pdb",
+
         "exec awk -f fix_psf_header.awk atbgl1a_solvated.psf > atbgl1a_solvated.psf.tmp",
         "exec mv atbgl1a_solvated.psf.tmp atbgl1a_solvated.psf",
         "",
     ])
+
     write_text(outdir / "build_solvated_psf.tcl", "\n".join(solvated))
 
     parmed_script = "\n".join([
