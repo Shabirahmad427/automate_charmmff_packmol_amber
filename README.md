@@ -124,7 +124,7 @@ awk -f split_solvated_packmol.awk solvated.pdb
 ```
 then split the resulting `waters_packmol.pb`:
 ```bash
-awk -f split_packmol_waters_by_chain.awk waters_packmol.pdb
+python3 split_waters.py
 ```
 ### 2. Build protein-only PSF/PDB
 
@@ -142,7 +142,7 @@ cd /media/shabir/Coaraci/GH/psfgen_receptor
 ### 4. Convert to AMBER package `parm7/rst7`
 
 ```bash
-/home/shabir/Downloads/ambertools25/bin/parmed -n -O -i to_amber_from_CHARMMff.parmed.in
+/home/shabir/Downloads/ambertools25/bin/parmed -n -O -i to_amber_from_charmm.parmed.in
 ```
 
 The ParmEd conversion script uses:
