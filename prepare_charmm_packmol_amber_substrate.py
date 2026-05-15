@@ -345,7 +345,7 @@ def write_splitters(outdir: Path) -> None:
     ]))
 
     write_text(outdir / "fix_psf_header.awk",
-        'NR == 1 { print "PSF CMAP x-plor"; next } { print }\n'
+        'NR == 1 { print "PSF EXT CMAP XPLOR"; next } { print }\n'
     )
 
     write_text(outdir / "split_waters.py", "\n".join([
