@@ -143,7 +143,7 @@ def protein_only_lines(mapped_lines: Sequence[str]) -> List[str]:
         resname = pdb_resname(line)
 
         # Exclude solvent/ions
-        if resname in {"TIP", "TIP3", "WAT", "HOH", "SOD", "CLA"}:
+        if resname in {"TIP3", "TIP3", "WAT", "HOH", "SOD", "CLA"}:
             continue
 
         keep.append(line)
@@ -280,9 +280,9 @@ def packmol_input(box_side: float, waters: int, na: int, cl: int) -> str:
 
 def write_template_pdbs(outdir: Path) -> None:
     write_text(outdir / "WATER.pdb", "\n".join([
-        "HETATM    1  OH2 TIP A   1       0.000   0.000   0.000  1.00  0.00           O",
-        "HETATM    2  H1  TIP A   1       0.957   0.000   0.000  1.00  0.00           H",
-        "HETATM    3  H2  TIP A   1      -0.239   0.927   0.000  1.00  0.00           H",
+        "HETATM    1  OH2 TIP3A   1       0.000   0.000   0.000  1.00  0.00           O",
+        "HETATM    2  H1  TIP3A   1       0.957   0.000   0.000  1.00  0.00           H",
+        "HETATM    3  H2  TIP3A   1      -0.239   0.927   0.000  1.00  0.00           H",
         "END",
         "",
     ]))
@@ -305,9 +305,6 @@ def write_splitters(outdir: Path) -> None:
         '  ion_out = "ions_packmol.pdb";',
         '  prot_out = "protein_from_packmol.pdb";',
         '  sub_out = "substrate_from_packmol.pdb";',
-        '',
-        '  wres = 0;',
-        '  prev = "";',
         '}',
         '',
         '/^(ATOM|HETATM)/ {',
@@ -316,9 +313,7 @@ def write_splitters(outdir: Path) -> None:
         '',
         '  # ---------------- WATER ----------------',
         '  if (res == "TIP" || res == "TIP3") {',
-        '    if (res != prev) wres++;',
-        '    prev = res;',
-        '    printf "%s%5d%s\\n", substr($0,1,22), wres, substr($0,27) >> water_out;',
+        '    print >> water_out;',
         '    next;',
         '  }',
         '',
@@ -349,19 +344,38 @@ def write_splitters(outdir: Path) -> None:
         ""
     ]))
 
-    write_text(outdir / "split_packmol_waters_by_chain.awk", "\n".join([
-        '/^(ATOM|HETATM)/ {',
-        '  f="waters_packmol_" substr($0,22,1) ".pdb";',
-        '  print >> f;',
-        '  seen[f]=1',
-        '}',
-        'END { for (f in seen) print "END" >> f }',
-        "",
-    ]))
-
     write_text(outdir / "fix_psf_header.awk",
         'NR == 1 { print "PSF CMAP x-plor"; next } { print }\n'
     )
+
+    write_text(outdir / "split_waters.py", "\n".join([
+        '"""Split waters_packmol.pdb into 3 equal PDB files with unique residue numbers.',
+        '',
+        'Run after:  awk -f split_solvated_packmol.awk solvated.pdb',
+        'Produces:   waters_A.pdb  waters_B.pdb  waters_C.pdb',
+        '"""',
+        'import math',
+        'from pathlib import Path',
+        '',
+        'atoms = [l for l in Path("waters_packmol.pdb").read_text().splitlines()',
+        '         if l.startswith(("ATOM", "HETATM"))]',
+        'assert len(atoms) % 3 == 0, "Water atom count not divisible by 3"',
+        'n_waters = len(atoms) // 3',
+        'n = math.ceil(n_waters / 9999)',
+        'sizes = [9999] * (n - 1) + [n_waters - 9999 * (n - 1)]',
+        'wi = 0',
+        'for i, count in enumerate(sizes):',
+        '    fname = f"waters_{chr(65 + i)}.pdb"',
+        '    out = []',
+        '    for resid in range(1, count + 1):',
+        '        for k in range(3):',
+        '            line = atoms[wi * 3 + k]',
+        '            out.append(line[:22] + f"{resid:4d}" + line[26:])',
+        '        wi += 1',
+        '    Path(fname).write_text("\\n".join(out + ["END", ""]))',
+        '    print(f"Wrote {fname}: {count} waters")',
+        '',
+    ]))
 
 
 def run(cmd: Sequence[str] | str, cwd: Path, stdin_text: str | None = None) -> None:
@@ -379,8 +393,9 @@ def write_build_scripts(
     outdir: Path,
     patches: Sequence[str],
     water_chain_files=None,
+    n_water_segments: int = 4,
     ligand_str: str | None = None,
-    substrate_pdb: str = "substrate_from_packmol.pdb",
+    substrate_pdb: str = "substrate_from_packmol_h.pdb",
     use_carb: bool = False,
 ) -> None:
     water_chain_files = water_chain_files or []
@@ -426,20 +441,17 @@ def write_build_scripts(
         "package require psfgen",
         f"topology {CHARMM_TOP}",
         f"topology {CHARMM_WATER_IONS}",
+        f"topology {CHARMM_CGENFF}",
+        f"topology {CHARMM_CARB}",
     ]
     if ligand_str:
         solvated_top += [
-            f"topology {CHARMM_CGENFF}",
             f"topology {ligand_str}",
-        ]
-    if use_carb:
-        solvated_top += [
-            f"topology {CHARMM_CARB}",
         ]
     solvated_top += [
         "pdbalias atom ILE CD1 CD",
         "pdbalias atom PHE OXT OT2",
-        "pdbalias residue TIP TIP3",
+        "pdbalias residue TIP3 TIP3",
     ]
 
     solvated = solvated_top + [
@@ -465,24 +477,19 @@ def write_build_scripts(
 
     # -------------------------
     # WATER HANDLING
+    # Always use pre-split files; full_run() produces them via
+    # split_waters_n_segments(), prepare-only users run split_waters.py first.
     # -------------------------
-    if water_chain_files:
-        for idx, filename in enumerate(water_chain_files):
-            seg = f"WT{idx:02d}"
-            solvated.extend([
-                f"segment {seg} {{",
-                "  auto none",
-                f"  pdb {filename}",
-                "}",
-                f"coordpdb {filename} {seg}",
-            ])
-    else:
+    if not water_chain_files:
+        water_chain_files = [f"waters_{chr(65 + i)}.pdb" for i in range(n_water_segments)]
+    for idx, filename in enumerate(water_chain_files):
+        seg = f"WT{idx:02d}"
         solvated.extend([
-            "segment WT1 {",
+            f"segment {seg} {{",
             "  auto none",
-            "  pdb waters_packmol.pdb",
+            f"  pdb {filename}",
             "}",
-            "coordpdb waters_packmol.pdb WT1",
+            f"coordpdb {filename} {seg}",
         ])
 
     # -------------------------
@@ -512,15 +519,12 @@ def write_build_scripts(
         "chamber \\",
         f"  -top {CHARMM_TOP} \\",
         f"  -param {CHARMM_PAR} \\",
+        f"  -param {CHARMM_CGENFF_PAR} \\",
+        f"  -param {CHARMM_CARB_PAR} \\",
     ]
     if ligand_str:
         parmed_lines += [
-            f"  -param {CHARMM_CGENFF_PAR} \\",
             f"  -str {ligand_str} \\",
-        ]
-    if use_carb:
-        parmed_lines += [
-            f"  -param {CHARMM_CARB_PAR} \\",
         ]
     parmed_lines += [
         f"  -str {CHARMM_WATER_IONS} \\",
@@ -596,19 +600,37 @@ def write_amber_inputs(outdir: Path, temperatures: Iterable[int]) -> None:
     ]))
 
 
-def split_waters_by_chain(outdir: Path) -> List[str]:
-    waters = outdir / "waters_packmol.pdb"
-    chain_files: Dict[str, List[str]] = {}
-    for line in read_lines(waters):
-        if not is_atom_record(line):
-            continue
-        chain = pdb_chain(line)
-        chain_files.setdefault(chain, []).append(line)
+def split_waters_n_segments(outdir: Path) -> List[str]:
+    """Split waters_packmol.pdb into PDB files of at most 9999 residues each.
+
+    waters_packmol.pdb is the direct output of split_solvated_packmol.awk,
+    which passes water records through unchanged from solvated.pdb (standard
+    PDB column layout, 4-char resnum at cols 23-26).  This function assigns
+    local sequential residue numbers (1..count) per output file, keeping
+    coordinates at their standard column positions.
+    Number of segments = ceil(n_waters / 9999).
+    """
+    atoms = [l for l in read_lines(outdir / "waters_packmol.pdb") if is_atom_record(l)]
+    assert len(atoms) % 3 == 0, "Water atom count not divisible by 3 — check waters_packmol.pdb"
+    n_waters = len(atoms) // 3
+
+    n = math.ceil(n_waters / 9999)
+    sizes = [9999] * (n - 1) + [n_waters - 9999 * (n - 1)]
+
     filenames: List[str] = []
-    for chain, lines in sorted(chain_files.items()):
-        filename = f"waters_packmol_{chain}.pdb"
-        write_text(outdir / filename, "\n".join(lines + ["END", ""]))
-        filenames.append(filename)
+    water_idx = 0
+    for i, count in enumerate(sizes):
+        label = chr(ord("A") + i)
+        fname = f"waters_{label}.pdb"
+        out_lines: List[str] = []
+        for local_resid in range(1, count + 1):
+            for k in range(3):  # OH2, H1, H2
+                line = atoms[water_idx * 3 + k]
+                line = line[:22] + f"{local_resid:4d}" + line[26:]
+                out_lines.append(line)
+            water_idx += 1
+        write_text(outdir / fname, "\n".join(out_lines + ["END", ""]))
+        filenames.append(fname)
     return filenames
 
 
@@ -621,18 +643,6 @@ def prepare_only(args: argparse.Namespace) -> None:
     write_text(outdir / "mapped_from_pqr.pdb", "\n".join(mapped) + "\n")
     write_text(outdir / "9upt_psfgen_ph5.5_protein.pdb", "\n".join(protein) + "\n")
     shutil.copyfile(outdir / "9upt_psfgen_ph5.5_protein.pdb", outdir / "step1_pdbreader.pdb")
-
-    patches = generate_patch_lines(args.pqr)
-    write_splitters(outdir)
-    write_template_pdbs(outdir)
-    ligand_str = str(args.ligand_str.resolve()) if args.ligand_str else None
-    write_build_scripts(
-        outdir, patches,
-        ligand_str=ligand_str,
-        substrate_pdb=args.substrate_pdb,
-        use_carb=args.carb,
-    )
-    write_amber_inputs(outdir, args.temperatures)
 
     net = net_charge_from_pqr(args.pqr)
     print(f"[DEBUG] Raw net charge = {net}")
@@ -647,6 +657,20 @@ def prepare_only(args: argparse.Namespace) -> None:
     print(f"[DEBUG] Box side = {box_side}")
     print(f"[DEBUG] Waters = {waters}")
     na, cl = ion_counts(net, box_side, None if args.neutralize_only else args.salt_molarity)
+
+    patches = generate_patch_lines(args.pqr)
+    write_splitters(outdir)
+    write_template_pdbs(outdir)
+    ligand_str = str(args.ligand_str.resolve()) if args.ligand_str else None
+    n_water_segments = math.ceil(waters / 9999)
+    write_build_scripts(
+        outdir, patches,
+        n_water_segments=n_water_segments,
+        ligand_str=ligand_str,
+        substrate_pdb=args.substrate_pdb,
+        use_carb=args.carb,
+    )
+    write_amber_inputs(outdir, args.temperatures)
     print(f"[DEBUG] Sodium (Na) = {na}")
     print(f"[DEBUG] Chloride (Cl) = {cl}")
     prep_summary = "\n".join([
@@ -671,7 +695,7 @@ def full_run(args: argparse.Namespace) -> None:
 
     run(f"{args.packmol} < packmol_system.inp", cwd=outdir)
     run(["awk", "-f", "split_solvated_packmol.awk", "solvated.pdb"], cwd=outdir)
-    water_chain_files = split_waters_by_chain(outdir)
+    water_chain_files = split_waters_n_segments(outdir)
     patches = generate_patch_lines(args.pqr)
     ligand_str = str(args.ligand_str.resolve()) if args.ligand_str else None
     write_build_scripts(
@@ -714,10 +738,10 @@ def make_parser() -> argparse.ArgumentParser:
              "par_all36_cgenff.prm + this .str in ParmEd.",
     )
     parser.add_argument(
-        "--substrate-pdb", default="substrate_from_packmol.pdb",
+        "--substrate-pdb", default="substrate_from_packmol_h.pdb",
         help="Substrate PDB filename used in the psfgen build script "
-             "(default: substrate_from_packmol.pdb). Use "
-             "substrate_from_packmol_h.pdb when explicit hydrogens are needed.",
+             "(default: substrate_from_packmol_h.pdb, the CGenFF-named hydrogenated file). "
+             "Must have atom names matching the CGenFF topology STR.",
     )
     parser.add_argument(
         "--carb", action="store_true",
